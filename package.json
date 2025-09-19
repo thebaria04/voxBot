@@ -11,6 +11,8 @@
     "test:coverage": "jest --config jest.config.json --coverage",
     "build": "echo 'No build step required for Node.js'",
     "deploy": "node deployment/deploy.js",
+    "deploy:azure": "az webapp deployment source config-zip --resource-group DefaultResourceGroup-EUS --name VoxRepoBotTest-app-nr3qljggi6m6m --src ./dist.zip",
+    "package": "npm run test && npm run build && tar -czf dist.zip --exclude=node_modules --exclude=.git --exclude=tests .",
     "create-cert": "node deployment/create-certificate.js",
     "check-cert": "node deployment/create-certificate.js check",
     "setup-auth": "node deployment/create-certificate.js create",
