@@ -1,4 +1,6 @@
 const axios = require('axios');
+const { AIProjectClient } = require('@azure/ai-projects');
+const { DefaultAzureCredential } = require('@azure/identity');
 const { Logger } = require('./logger');
 
 class AiFoundryClient {
@@ -9,8 +11,38 @@ class AiFoundryClient {
         this.deploymentName = process.env.AI_FOUNDRY_DEPLOYMENT_NAME;
         this.modelName = process.env.AI_FOUNDRY_MODEL_NAME || 'gpt-4';
         
+        // Azure AI Projects configuration
+        this.projectEndpoint = process.env.AI_FOUNDRY_PROJECT_ENDPOINT || "https://vox-foundry.services.ai.azure.com/api/projects/Vox-foundry";
+        this.agentId = process.env.AI_FOUNDRY_AGENT_ID || "asst_OFBUDsmehcXRz16tK9ys9qfb";
+        this.useAzureProjects = process.env.USE_AZURE_AI_PROJECTS === 'true';
+        
         this.validateConfiguration();
-        this.setupAxiosInstance();
+        this.setupClients();
+    }
+
+    async setupClients() {
+        try {
+            if (this.useAzureProjects && process.env.NODE_ENV !== 'test') {
+                // Initialize Azure AI Projects client
+                this.projectClient = new AIProjectClient(
+                    this.projectEndpoint,
+                    new DefaultAzureCredential()
+                );
+                this.logger.info('Azure AI Projects client initialized', {
+                    projectEndpoint: this.projectEndpoint,
+                    agentId: this.agentId
+                });
+            } else {
+                // Fallback to direct API
+                this.setupAxiosInstance();
+            }
+        } catch (error) {
+            this.logger.warn('Failed to initialize Azure AI Projects client, falling back to direct API', {
+                error: error.message
+            });
+            this.useAzureProjects = false;
+            this.setupAxiosInstance();
+        }
     }
 
     validateConfiguration() {
@@ -20,18 +52,30 @@ class AiFoundryClient {
             return;
         }
         
-        if (!this.endpoint) {
-            throw new Error('AI_FOUNDRY_ENDPOINT environment variable is required');
+        if (this.useAzureProjects) {
+            if (!this.projectEndpoint) {
+                throw new Error('AI_FOUNDRY_PROJECT_ENDPOINT environment variable is required for Azure AI Projects');
+            }
+            if (!this.agentId) {
+                throw new Error('AI_FOUNDRY_AGENT_ID environment variable is required for Azure AI Projects');
+            }
+            this.logger.info('AI Foundry client configured for Azure AI Projects', {
+                projectEndpoint: this.projectEndpoint,
+                agentId: this.agentId
+            });
+        } else {
+            if (!this.endpoint) {
+                throw new Error('AI_FOUNDRY_ENDPOINT environment variable is required');
+            }
+            if (!this.apiKey) {
+                throw new Error('AI_FOUNDRY_API_KEY environment variable is required');
+            }
+            this.logger.info('AI Foundry client configured for direct API access', {
+                endpoint: this.endpoint,
+                deploymentName: this.deploymentName,
+                modelName: this.modelName
+            });
         }
-        if (!this.apiKey) {
-            throw new Error('AI_FOUNDRY_API_KEY environment variable is required');
-        }
-        
-        this.logger.info('AI Foundry client configuration validated', {
-            endpoint: this.endpoint,
-            deploymentName: this.deploymentName,
-            modelName: this.modelName
-        });
     }
 
     setupAxiosInstance() {
@@ -107,6 +151,128 @@ class AiFoundryClient {
                 return 'Hello! How can I help you?';
             }
 
+            if (this.useAzureProjects) {
+                return await this.queryWithAzureProjects(prompt, conversationContext, options);
+            } else {
+                return await this.queryWithDirectApi(prompt, conversationContext, options);
+            }
+
+        } catch (error) {
+            this.logger.error('Error querying AI Foundry', {
+                error: error.message,
+                stack: error.stack,
+                status: error.response?.status,
+                responseData: error.response?.data
+            });
+
+            // Return fallback response for user
+            return this.getFallbackResponse(error);
+        }
+    }
+
+    async queryWithAzureProjects(prompt, conversationContext = [], options = {}) {
+        try {
+            this.logger.info('Using Azure AI Projects for query', {
+                promptLength: prompt.length,
+                contextLength: conversationContext.length,
+                agentId: this.agentId
+            });
+
+            const startTime = Date.now();
+
+            // Get the agent
+            const agent = await this.projectClient.agents.getAgent(this.agentId);
+            this.logger.debug('Retrieved agent', { agentName: agent.name });
+
+            // Create a new thread
+            const thread = await this.projectClient.agents.threads.create();
+            this.logger.debug('Created thread', { threadId: thread.id });
+
+            // Add conversation context if provided
+            for (const contextMessage of conversationContext.slice(-4)) { // Keep last 4 messages for context
+                await this.projectClient.agents.messages.create(
+                    thread.id, 
+                    contextMessage.role, 
+                    contextMessage.content
+                );
+            }
+
+            // Add the current user message
+            const message = await this.projectClient.agents.messages.create(thread.id, "user", prompt);
+            this.logger.debug('Created message', { messageId: message.id });
+
+            // Create and run the agent
+            let run = await this.projectClient.agents.runs.create(thread.id, agent.id);
+            this.logger.debug('Created run', { runId: run.id });
+
+            // Poll until the run reaches a terminal status
+            let pollCount = 0;
+            const maxPolls = 60; // Maximum 60 seconds of polling
+            
+            while ((run.status === "queued" || run.status === "in_progress") && pollCount < maxPolls) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                run = await this.projectClient.agents.runs.get(thread.id, run.id);
+                pollCount++;
+                
+                if (pollCount % 5 === 0) { // Log every 5 seconds
+                    this.logger.debug('Waiting for run completion', { 
+                        status: run.status, 
+                        elapsed: `${pollCount}s` 
+                    });
+                }
+            }
+
+            if (run.status === "failed") {
+                throw new Error(`Agent run failed: ${run.lastError?.message || 'Unknown error'}`);
+            }
+
+            if (pollCount >= maxPolls) {
+                throw new Error('Agent run timed out after 60 seconds');
+            }
+
+            this.logger.debug('Run completed', { status: run.status });
+
+            // Retrieve messages
+            const messages = await this.projectClient.agents.messages.list(thread.id, { order: "desc" });
+            
+            // Find the assistant's latest response
+            let assistantResponse = null;
+            for await (const m of messages) {
+                if (m.role === "assistant") {
+                    const content = m.content.find((c) => c.type === "text" && "text" in c);
+                    if (content) {
+                        assistantResponse = content.text.value;
+                        break;
+                    }
+                }
+            }
+
+            if (!assistantResponse) {
+                throw new Error('No assistant response found');
+            }
+
+            const duration = Date.now() - startTime;
+            this.logger.info('Azure AI Projects response received', {
+                duration: `${duration}ms`,
+                threadId: thread.id,
+                runId: run.id,
+                responseLength: assistantResponse.length,
+                pollCount
+            });
+
+            return assistantResponse;
+
+        } catch (error) {
+            this.logger.error('Azure AI Projects query failed', {
+                error: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
+    }
+
+    async queryWithDirectApi(prompt, conversationContext = [], options = {}) {
+        try {
             // Prepare messages for the conversation
             const messages = this.prepareMessages(prompt, conversationContext);
             
@@ -127,7 +293,7 @@ class AiFoundryClient {
                 payload.deployment_name = this.deploymentName;
             }
 
-            this.logger.info('Sending request to AI Foundry', {
+            this.logger.info('Sending request to AI Foundry (Direct API)', {
                 promptLength: prompt.length,
                 contextLength: conversationContext.length,
                 model: this.modelName
@@ -137,7 +303,7 @@ class AiFoundryClient {
             const response = await this.httpClient.post('', payload);
             const duration = Date.now() - startTime;
 
-            this.logger.info('AI Foundry response received', {
+            this.logger.info('AI Foundry direct API response received', {
                 duration: `${duration}ms`,
                 status: response.status,
                 usage: response.data.usage
@@ -146,15 +312,12 @@ class AiFoundryClient {
             return this.extractResponseContent(response.data);
 
         } catch (error) {
-            this.logger.error('Error querying AI Foundry', {
+            this.logger.error('Direct API query failed', {
                 error: error.message,
-                stack: error.stack,
                 status: error.response?.status,
                 responseData: error.response?.data
             });
-
-            // Return fallback response for user
-            return this.getFallbackResponse(error);
+            throw error;
         }
     }
 
