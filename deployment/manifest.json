@@ -1,0 +1,183 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "{{MICROSOFT_APP_ID}}",
+  "developer": {
+    "name": "Microsoft",
+    "websiteUrl": "https://www.microsoft.com",
+    "privacyUrl": "https://privacy.microsoft.com/privacystatement",
+    "termsOfUseUrl": "https://www.microsoft.com/servicesagreement"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "AI Foundry Bot",
+    "full": "AI Foundry Teams Bot with Speech Integration"
+  },
+  "description": {
+    "short": "Intelligent Teams bot powered by Azure AI Foundry with speech capabilities",
+    "full": "A comprehensive Microsoft Teams bot that integrates with Azure AI Foundry to provide intelligent responses. Features include speech-to-text conversion, text-to-speech output, meeting participation, and real-time conversation support."
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "{{MICROSOFT_APP_ID}}",
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "supportsCalling": true,
+      "supportsVideo": false
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "{{BOT_DOMAIN}}"
+  ],
+  "webApplicationInfo": {
+    "id": "{{MICROSOFT_APP_ID}}",
+    "resource": "https://RscBasedStoreApp"
+  },
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "OnlineMeeting.ReadBasic.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "OnlineMeetingIncomingAudio.Detect.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "TeamMember.Read.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "ChatMessage.Read.Chat",
+          "type": "Application"
+        }
+      ]
+    }
+  },
+  "devicePermissions": [
+    "media"
+  ],
+  "activities": {
+    "activityTypes": [
+      {
+        "type": "textMessage",
+        "description": "Send and receive text messages"
+      },
+      {
+        "type": "speechMessage", 
+        "description": "Process speech input and provide voice responses"
+      }
+    ]
+  },
+  "configurableTabs": [
+    {
+      "configurationUrl": "{{BOT_DOMAIN}}/configure",
+      "canUpdateConfiguration": true,
+      "scopes": [
+        "team",
+        "groupchat"
+      ],
+      "context": [
+        "channelTab",
+        "privateChatTab",
+        "meetingChatTab",
+        "meetingDetailsTab"
+      ]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "about",
+      "name": "About",
+      "contentUrl": "{{BOT_DOMAIN}}/static/about.html",
+      "websiteUrl": "{{BOT_DOMAIN}}/static/about.html",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "composeExtensions": [
+    {
+      "botId": "{{MICROSOFT_APP_ID}}",
+      "commands": [
+        {
+          "id": "askAI",
+          "type": "action",
+          "title": "Ask AI",
+          "description": "Ask the AI a question",
+          "initialRun": false,
+          "parameters": [
+            {
+              "name": "question",
+              "title": "Question",
+              "description": "What would you like to ask?",
+              "inputType": "text"
+            }
+          ]
+        },
+        {
+          "id": "voiceQuery",
+          "type": "action",
+          "title": "Voice Query",
+          "description": "Ask using voice input",
+          "initialRun": false,
+          "parameters": [
+            {
+              "name": "voiceInput",
+              "title": "Voice Input",
+              "description": "Record your question",
+              "inputType": "file"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "meetingExtensionDefinition": {
+    "supportsAnonymousGuestUsers": true,
+    "scenes": [
+      {
+        "id": "aiAssistant",
+        "name": "AI Assistant",
+        "file": "scenes/aiAssistant.json",
+        "preview": "scenes/aiAssistant-preview.png",
+        "maxAudience": 50,
+        "seatsReservedForOrganizersOrPresenters": 0
+      }
+    ]
+  },
+  "defaultInstallScope": "meetings",
+  "defaultGroupCapability": {
+    "meetings": "tab",
+    "team": "bot",
+    "groupchat": "bot"
+  },
+  "localizationInfo": {
+    "defaultLanguageTag": "en-us",
+    "additionalLanguages": [
+      {
+        "languageTag": "es-es",
+        "file": "localization/es-es.json"
+      },
+      {
+        "languageTag": "fr-fr", 
+        "file": "localization/fr-fr.json"
+      }
+    ]
+  }
+}
